@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rhokp
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: rhokp
+
+resources:
+  - namespace.yaml
+  - service-account.yaml
+  - solr-pvc.yaml
+  - solr-deployment.yaml
+  - solr-service.yaml
+  - mcp-deployment.yaml
+  - mcp-service.yaml
+  - mcp-route.yaml
