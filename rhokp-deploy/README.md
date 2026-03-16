@@ -4,10 +4,22 @@ One-shot deployment of **Red Hat Offline Knowledge Portal** (Solr + MCP server) 
 
 Extracted from a live cluster — ready to copy-paste.
 
-## Deploy
+## Quick deploy (script)
 
 ```bash
-# 1. Create the secret (do this first — never commit real keys)
+OKP_ACCESS_KEY=<your_key> ./rhokp-deploy/deploy.sh
+```
+
+Or without the env var — it will prompt you:
+
+```bash
+./rhokp-deploy/deploy.sh
+```
+
+## Manual deploy (copy-paste)
+
+```bash
+# 1. Create namespace and secret
 oc create namespace rhokp
 oc -n rhokp create secret generic okp-access-secret \
   --from-literal=OKP_ACCESS_KEY=<your_access_key>
@@ -15,7 +27,11 @@ oc -n rhokp create secret generic okp-access-secret \
 # 2. Deploy everything
 oc apply -k rhokp-deploy/base/
 
-# 3. Verify
+# 3. Wait for rollout
+oc -n rhokp rollout status deployment/rhokp-solr --timeout=120s
+oc -n rhokp rollout status deployment/rhokp-mcp --timeout=120s
+
+# 4. Verify
 oc -n rhokp get pods
 oc -n rhokp get route rhokp-mcp
 ```
