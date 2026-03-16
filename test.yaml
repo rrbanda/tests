@@ -1,0 +1,778 @@
+app:
+  title: Augment
+  baseUrl: http://localhost:3000
+
+organization:
+  name: 'Augment'
+
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    port: 7007
+  csp:
+    connect-src: ["'self'", 'http:', 'https:']
+  cors:
+    origin: http://localhost:3000
+    methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+    credentials: true
+  database:
+    client: better-sqlite3
+    connection: ':memory:'
+    # client: pg
+    # connection:
+    #   host: localhost
+    #   port: 5432
+    #   user: backstage
+    #   password: backstage
+    #   database: augment
+
+# =============================================================================
+# AUGMENT PLUGIN CONFIGURATION
+# =============================================================================
+augment:
+  # =============================================================================
+  # PROVIDER SELECTION
+  # =============================================================================
+  # Which agentic provider to use. Currently supported:
+  #   - 'llamastack' (default) — Llama Stack Responses API
+  # Future providers: 'adk' (Google ADK), 'langgraph' (LangGraph Platform)
+  provider: llamastack
+
+  # =============================================================================
+  # MCP PROXY BASE URL
+  # =============================================================================
+  # URL that the LlamaStack server will use to call back to the MCP proxy
+  # hosted by this Backstage backend. Required when multiple MCP servers have
+  # tools with the same name — the proxy namespaces them automatically.
+  #
+  # Defaults to the `backend.baseUrl` value. Override when:
+  #   - Backstage and LlamaStack are on different networks/clusters
+  #   - Backstage is behind a load balancer or ingress with a different hostname
+  #   - Local development with a remote LlamaStack (use a tunnel URL)
+  #
+  # Deployment examples:
+  #   Same-cluster OpenShift:
+  #     proxyBaseUrl: 'https://backstage-route.apps.cluster.example.com/api/augment'
+  #   Multi-cluster / remote LlamaStack:
+  #     proxyBaseUrl: 'https://backstage.external-domain.com/api/augment'
+  #   Local dev with cloudflared tunnel:
+  #     proxyBaseUrl: 'https://abc123.trycloudflare.com/api/augment'
+  #
+  # Can also be set at runtime via the admin panel (Settings → Model & Tools → mcpProxyUrl).
+  # proxyBaseUrl: '${PROXY_BASE_URL}'
+
+  # =============================================================================
+  # TOOL EXECUTION MODE
+  # =============================================================================
+  # Controls how MCP tools are executed when the LLM invokes them.
+  #   - 'direct' (default): LlamaStack connects to MCP servers directly or via the proxy.
+  #   - 'backend': Backstage executes MCP tool calls on behalf of LlamaStack.
+  #     Use when LlamaStack cannot reach MCP servers (e.g., different cluster/network).
+  #     HITL approval still works in this mode.
+  # toolExecutionMode: backend
+
+  # Enable debug logging in the browser console (default: false in production, true in development)
+  # Can also be toggled at runtime via browser console: window.enableAugmentChatDebug()
+  debug: false
+
+  # =============================================================================
+  # SECURITY CONFIGURATION - 3 Modes Available
+  # =============================================================================
+  #
+  # MODE 1: 'none' - No Access Control ✅ TESTED
+  #   - Anyone can access Augment without logging in
+  #   - MCP servers are called without any authentication headers
+  #   - Best for: Local development, demos, trusted internal environments
+  #
+  # MODE 2: 'plugin-only' - Plugin Access Control ✅ RECOMMENDED
+  #   - Users must be logged in via Keycloak to access Augment
+  #   - Access controlled by Backstage RBAC (augment.access permission)
+  #   - MCP servers use their own service accounts (no auth headers sent)
+  #   - Best for: Production deployments where MCP server has its own K8s SA
+  #   - Requires: RBAC policy mapping Keycloak group to augment.access
+  #
+  # MODE 3: 'full' - Full Authentication Chain 🚧 EXPERIMENTAL
+  #   - Users must be logged in via Keycloak to access Augment
+  #   - Backend fetches OAuth tokens for MCP server calls
+  #   - MCP servers receive Authorization: Bearer <token> headers
+  #   - ⚠️ NOT FULLY TESTED - MCP server may not correctly use OAuth tokens
+  #   - Best for: When MCP server requires OAuth authentication
+  #   - Requires: Keycloak service account client + mcpOAuth config below
+  #
+  security:
+    mode: 'plugin-only' # Options: 'none' | 'plugin-only' | 'full' (full is experimental)
+
+    # Admin users (used when permission.enabled is false, i.e. local dev without RBAC).
+    # On RHDH where permission.enabled: true, admin access is controlled by RBAC policy
+    # and this list is ignored.
+    # Entity refs are derived from Keycloak email: admin@example.com → user:default/admin
+    adminUsers:
+      - 'user:default/admin'
+      - 'user:default/guest'
+
+    # Keycloak group required for access (modes 2 & 3)
+    # Users in this group get augment.access permission via RBAC
+    # requiredGroup: 'augment-users'
+
+    # Custom message shown when user doesn't have access
+    # accessDeniedMessage: 'Contact your platform team for Augment access.'
+
+    # OAuth config for MCP server authentication (mode 3 'full' only)
+    # Backend uses these credentials to get tokens for MCP calls
+    # mcpOAuth:
+    #   tokenUrl: 'https://keycloak.example.com/realms/demo/protocol/openid-connect/token'
+    #   clientId: 'augment-backend'
+    #   clientSecret: ${MCP_OAUTH_CLIENT_SECRET}
+    #   scopes:
+    #     - openid
+
+  # =============================================================================
+  # BRANDING - Enterprise Customization
+  # =============================================================================
+  # Override these values to apply your organization's branding
+  branding:
+    appName: 'Augment'
+    tagline: 'Your AI-powered platform assistant'
+    # Brand colors (hex values)
+    primaryColor: '#9333ea' # Purple - main accent
+    secondaryColor: '#8b5cf6' # Violet - secondary accent
+    successColor: '#10b981' # Emerald - success states
+    warningColor: '#f59e0b' # Amber - warning states
+    errorColor: '#ef4444' # Red - error states
+    # Optional: Custom logo URL (relative or absolute)
+    # logoUrl: '/branding/logo.svg'
+
+  # =============================================================================
+  # LLAMA STACK - AI Backend Configuration
+  # =============================================================================
+  llamaStack:
+    baseUrl: https://llamastack-llamastack.apps.ocp.v7hjl.sandbox2288.opentlc.com
+    model: 'vllm-inference/gpt-oss-120b'
+    # DeepSeek-R1: Reasoning model (does NOT support tool calling well)
+    # model: 'r1-qwen-14b-w4a16'
+
+    # -------------------------------------------------------------------------
+    # VECTOR STORE CONFIGURATION (Required for RAG)
+    # -------------------------------------------------------------------------
+    # vectorStoreName (REQUIRED): The canonical name for your vector store.
+    # On plugin startup:
+    #   1. If vectorStoreIds is provided, validates those IDs exist on server
+    #   2. If validation fails or vectorStoreIds is empty, finds/creates store by name
+    # This ensures RAG is always enabled with a properly named vector store.
+    vectorStoreName: 'rhdh-knowledge-base'
+
+    # vectorStoreIds (Optional): Pre-existing vector store IDs to use.
+    # If provided and valid, these are used directly. Otherwise falls back to vectorStoreName.
+    # Backward compatible: 'vectorStoreId' (single) also works.
+    # vectorStoreIds:
+    #   - '${VECTOR_STORE_ID}'
+    # Embedding model for RAG (used when creating vector store)
+    embeddingModel: 'sentence-transformers/nomic-ai/nomic-embed-text-v1.5'
+    embeddingDimension: 768
+    # -------------------------------------------------------------------------
+    # HYBRID SEARCH CONFIGURATION (Optional)
+    # -------------------------------------------------------------------------
+    # Search mode for RAG retrieval:
+    #   - 'semantic': Pure embedding-based search (default)
+    #   - 'keyword': Pure BM25 keyword search
+    #   - 'hybrid': Combines semantic and keyword search for better results
+    # searchMode: 'hybrid'
+    # Weights for hybrid search (only used when searchMode: 'hybrid')
+    # bm25Weight: 0.5      # Weight for keyword/BM25 search (0.0 - 1.0)
+    # semanticWeight: 0.5  # Weight for semantic/embedding search (0.0 - 1.0)
+    # -------------------------------------------------------------------------
+    # Chunking configuration
+    chunkingStrategy: 'static'
+    maxChunkSizeTokens: 200
+    chunkOverlapTokens: 50
+    # -------------------------------------------------------------------------
+    # FILE SEARCH OPTIMIZATION (Token Usage)
+    # -------------------------------------------------------------------------
+    # Max chunks returned per file_search query (1-50, Llama Stack default: 10).
+    # Lower values reduce input tokens sent to the model.
+    fileSearchMaxResults: 5
+    # Minimum relevance score for returned chunks (0.0-1.0).
+    # Chunks below this score are dropped, reducing noise and token usage.
+    fileSearchScoreThreshold: 0.3
+    # Skip TLS certificate verification (for self-signed certs in dev/enterprise)
+    # Set to false in production with valid certificates
+    skipTlsVerify: true
+
+    # -------------------------------------------------------------------------
+    # TOOL SCOPING CONFIGURATION (Dynamic tool filtering per query)
+    # -------------------------------------------------------------------------
+    # When enabled, uses TF-IDF semantic matching to select only the most
+    # relevant MCP tools for each user query, reducing noise for the LLM.
+    toolScoping:
+      enabled: true
+      maxToolsPerTurn: 6
+      activationThreshold: 10
+
+    # -------------------------------------------------------------------------
+    # PRODUCTION PARAMETERS (Responses API)
+    # -------------------------------------------------------------------------
+    # Max total built-in tool calls per response (prevents runaway loops)
+    maxToolCalls: 10
+    # Max output tokens per response (controls cost, prevents excessive output)
+    # maxOutputTokens: 4096
+    # Sampling temperature (0.0 = deterministic, 2.0 = creative)
+    # temperature: 0.7
+    # Safety identifier for abuse detection and monitoring
+    # safetyIdentifier: 'cts-openshift-platform'
+    # Context window truncation: 'auto' truncates old context to prevent overflow
+    truncation: auto
+
+  # =============================================================================
+  # MULTI-AGENT CONFIGURATION
+  # =============================================================================
+  # The router is the entry point. It inspects the user's message and hands off
+  # to the specialist agent whose handoffDescription best matches the intent.
+  #
+  # To add a new specialist:
+  #   1. Define it below with a unique key, name, instructions, and handoffDescription
+  #   2. Add its key to the router's handoffs list
+  #   3. (Optional) assign mcpServers, enableRAG, asTools, or handoffs back to router
+  #
+  # Patterns:
+  #   handoffs  — transfer control to another agent (user talks to that agent)
+  #   asTools   — delegate as a sub-task (calling agent stays in control)
+  #
+  agents:
+    # ── Router: Intent classifier and dispatcher ──────────────
+    router:
+      name: Router
+      toolChoice: required
+      mcpServers: []
+      handoffDescription: Routes back to the Router for re-routing to a different specialist.
+      instructions: |
+        You are a silent intent router. Call one transfer function immediately. Do not think out loud. Do not explain your choice. Do not produce any text.
+
+        cluster-engineer → live cluster: pods, nodes, deployments, namespaces, logs, events, scaling, helm, oc/kubectl
+        product-knowledge → docs, KB articles, CVEs, errata, lifecycle, release notes, best practices
+
+        Combined questions → product-knowledge first.
+        "what/why/how" → product-knowledge. "show/list/do" → cluster-engineer.
+      maxOutputTokens: 128
+      temperature: 0.0
+      handoffs:
+        - cluster-engineer
+        - product-knowledge
+
+    # ── Cluster Engineer: Live cluster operations ─────────────
+    cluster-engineer:
+      name: Cluster Engineer
+      mcpServers:
+        - ocp-mcp
+      instructions: |
+        You are a Cluster Engineer with live MCP access to the OpenShift cluster. Execute tools immediately — never explain what you plan to do.
+
+        IMPORTANT: Use the EXACT tool names from your available tools list. Do NOT shorten or modify tool names.
+
+        RULES:
+        1. Call tools first, present results after. No preamble.
+        2. Read operations: execute immediately without asking.
+        3. Destructive operations (delete, scale to 0): ask for confirmation first.
+        4. Use conversation context — if a namespace was mentioned, reuse it.
+        5. Keep reasoning minimal. Act, don't deliberate.
+
+        PLAYBOOKS:
+
+        "health check" or "cluster status":
+          1. List all pods across all namespaces to find unhealthy ones
+          2. Get node resource usage (CPU and memory)
+          3. Present: node table (NAME | STATUS | CPU% | MEM%), then unhealthy pods table, then warnings summary
+
+        "list pods" / "show pods":
+          1. List pods (use namespace from context, or all namespaces)
+          2. Present table: NAME | STATUS | RESTARTS | AGE
+
+        "logs" / "what's wrong with pod X":
+          1. Fetch the pod's logs
+          2. Summarize: key errors, warnings, timestamps. Don't dump raw logs.
+
+        "list namespaces":
+          1. List all namespaces
+          2. Present table: NAME | STATUS | AGE
+
+        "events" / "what happened":
+          1. List events (use namespace from context)
+          2. Group by Warning vs Normal. Show recent warnings first.
+
+        "describe" / "details":
+          1. Get the specific resource details
+          2. Present key fields in a readable format
+
+        "create" / "delete" / "scale":
+          1. Confirm with user first
+          2. Execute the operation
+          3. Verify the result
+
+        FORMAT:
+        - Markdown tables, 3-4 columns max
+        - ⚠️ for CrashLoopBackOff/Error/OOMKilled, ❌ for Failed/NotReady, ✅ for Running/Ready
+        - End with a one-line summary: "3 nodes healthy, 2 pods in CrashLoopBackOff in namespace X"
+      handoffDescription: Cluster Engineer — executes live OpenShift/Kubernetes cluster operations (pods, nodes, deployments, namespaces, services, routes, builds, helm, logs, events, resource quotas).
+      handoffs:
+        - router
+
+    # ── Product Knowledge: Red Hat docs, KBs, CVEs ────────────
+    product-knowledge:
+      name: Product Knowledge Specialist
+      mcpServers:
+        - rhokp
+      enableRAG: true
+      instructions: |
+        You are a Product Knowledge Specialist with access to Red Hat's knowledge platform (RHOKP).
+
+        CRITICAL RULE — SEARCH BUDGET:
+        You may call solr_query AT MOST 3 times per user question. After 3 searches, you MUST stop searching and write your answer using whatever you found. Do NOT call solr_query a 4th time under any circumstances. If your first 3 searches returned nothing useful, say so honestly.
+
+        WORKFLOW (strict):
+        1. Make 1-3 targeted solr_query calls with specific keywords
+        2. STOP searching
+        3. Synthesize a clear answer from the results
+        4. Cite sources (KB IDs, CVE numbers, doc titles)
+
+        SEARCH TIPS:
+        - Use specific product names: "OpenShift Container Platform 4.14" not just "OpenShift"
+        - Include the issue type: "etcd performance tuning" not just "etcd"
+        - Use max_results: 5 to get enough context in one call
+
+        FORMAT:
+        - Start with a direct one-sentence answer
+        - Use tables for structured data (CVEs, lifecycle dates, version comparisons)
+        - Cite source at the end: "Source: [article title] / [CVE-ID] / [RHSA-ID]"
+        - If results are insufficient, say what you found and suggest refining the question
+      handoffDescription: Product Knowledge Specialist — searches Red Hat product docs, KB articles, CVEs, security advisories, errata, and release notes from RHOKP.
+      handoffs:
+        - router
+
+  defaultAgent: router
+  maxAgentTurns: 25
+
+  # Safety Guardrails
+  # Reference: https://developers.redhat.com/articles/2025/08/26/implement-ai-safeguards-python-and-llama-stack
+  #
+  # When inputShields/outputShields are configured and safety is enabled,
+  # shield IDs are passed in two places:
+  #   1. SafetyService: Pre/post-flight checks via POST /v1/safety/run-shield
+  #   2. Responses API `guardrails` field: Server-side enforcement during generation
+  safety:
+    enabled: true
+
+    # Shield registration requires safety providers in the Llama Stack server's run.yaml:
+    #   safety:
+    #     - provider_id: llama-guard
+    #       provider_type: inline::llama-guard
+    #     - provider_id: prompt-guard
+    #       provider_type: inline::prompt-guard
+    #
+    # To enable Llama Stack safety shields, uncomment and configure after server setup:
+    # registerShields:
+    #   - shieldId: content_safety
+    #     providerId: llama-guard
+    #     providerShieldId: meta-llama/Llama-Guard-3-8B
+    #   - shieldId: prompt_injection
+    #     providerId: prompt-guard
+    #     providerShieldId: Prompt-Guard-86M
+    # inputShields:
+    #   - content_safety
+    #   - prompt_injection
+    # outputShields:
+    #   - content_safety
+    # onError: block  # 'block' (fail-closed, default) or 'allow' (fail-open)
+
+  # Response Evaluation - Uses Llama Stack Scoring API
+  # Available scoring functions on this server:
+  #   - braintrust::answer-relevancy (relevancy to input)
+  #   - braintrust::answer-correctness (correctness scoring)
+  #   - braintrust::faithfulness (faithfulness to context)
+  #   - braintrust::context-relevancy (context relevance)
+  #   - braintrust::factuality (factual accuracy)
+  #   - llm-as-judge::base (LLM-based judging)
+  evaluation:
+    # Disabled - scoring functions not available on this Llama Stack server
+    # Enable when server has scoring functions registered (check /v1/scoring-functions)
+    enabled: false
+    # Best scoring functions for RAG quality assessment (when available)
+    scoringFunctions:
+      - 'braintrust::answer-relevancy' # Is the answer relevant to the question?
+      - 'braintrust::faithfulness' # Is the answer faithful to the RAG context?
+    # Minimum score threshold (0-1) - below this logs a warning
+    minScoreThreshold: 0.7
+
+  # =============================================================================
+  # DOCUMENT SOURCES FOR RAG INGESTION
+  # =============================================================================
+  # IMPORTANT: Enable only ONE source to avoid duplicate ingestion!
+  # Choose based on your deployment environment:
+  #
+  # For RHDH/Container deployments:
+  #   → Use 'github' source (RECOMMENDED) - no filesystem access needed
+  #   → Or 'url' source - for individual doc URLs
+  #
+  # For Local development:
+  #   → Use 'directory' source - reads from local filesystem
+  # =============================================================================
+  documents:
+    syncMode: full
+    sources:
+      # -------------------------------------------------------------------------
+      # OPTION 1: Directory Source (LOCAL DEV)
+      # Path is relative to backend plugin directory (plugins/augment-backend/)
+      # -------------------------------------------------------------------------
+      # - type: directory
+      #   path: ../../docs/knowledge-base
+      #   patterns:
+      #     - '**/*.md'
+
+      # -------------------------------------------------------------------------
+      # OPTION 2: GitHub Source (RECOMMENDED for RHDH/Containers)
+      # ✅ Container-friendly - no volume mounts needed
+      # ✅ Easy to update - just push to repo
+      # Uncomment below and comment out directory source for production
+      # -------------------------------------------------------------------------
+      # - type: github
+      #   repo: 'your-org/your-repo'
+      #   branch: main
+      #   path: workspaces/mcp-chat/docs/knowledge-base
+      #   patterns:
+      #     - '**/*.md'
+      #   # token: ${GITHUB_TOKEN}  # Uncomment for private repos
+
+      # -------------------------------------------------------------------------
+      # OPTION 3: URL Source (Alternative for RHDH/Containers)
+      # ✅ Container-friendly - no volume mounts needed
+      # ⚠️ Must list each URL individually
+      # -------------------------------------------------------------------------
+      # - type: url
+      #   urls:
+      #     - 'https://raw.githubusercontent.com/rrbanda/backstage-community-plugins/techx/workspaces/mcp-chat/docs/knowledge-base/type-a-migration-guide.md'
+
+  # MCP Servers for tool execution
+  # Each server can have Human-in-the-Loop (HITL) approval configured
+  # Servers can also be added/managed via the Admin Panel UI
+  mcpServers:
+    - id: ocp-mcp
+      name: OpenShift MCP Server
+      type: streamable-http
+      url: 'https://kubernetes-mcp-server-ocp-mcp-server.apps.ocp.v7hjl.sandbox2288.opentlc.com/mcp'
+      requireApproval: 'never'
+    - id: rhokp
+      name: Red Hat Knowledge Platform
+      type: streamable-http
+      url: 'https://rhokp-mcp-rhokp.apps.ocp.v7hjl.sandbox2288.opentlc.com/mcp'
+      requireApproval: 'never'
+  systemPrompt: |
+    You are an intelligent AI assistant for the Application Platform, powered by a multi-agent architecture. You automatically route requests to the right specialist:
+
+    - **Cluster Engineer**: Live OpenShift/Kubernetes operations via MCP tools
+    - **Product Knowledge Specialist**: Red Hat product docs, KB articles, CVEs, and security advisories via RHOKP
+
+    ## Core Behaviors
+
+    **Be Contextually Aware:**
+    - REMEMBER context from the current conversation. Track namespaces, pods, products, and CVEs mentioned.
+    - DON'T ask for clarification when context is already established.
+
+    **Be Proactive - Execute First, Don't Ask:**
+    - ALWAYS execute tools first, then present results
+    - For read operations: execute immediately
+    - For destructive operations (delete, scale to 0): confirm first
+
+    **Ground Responses in Sources:**
+    - Cluster data: always from live MCP tool results
+    - Product knowledge: always from RHOKP search results with citations (KB IDs, CVE numbers, doc URLs)
+
+    ## Response Format
+    - Be direct and concise
+    - Use markdown tables for structured data (3-4 columns max)
+    - Highlight issues: ⚠️ warnings, ❌ errors, ✅ healthy
+    - Cite sources for product knowledge (KB article IDs, CVE numbers)
+  # Prompt groups - Grouped prompt cards for the welcome screen
+  # Each prompt group has a title, description, icon, color, order, and list of cards
+  # The 'order' field controls display order (lower numbers appear first)
+  promptGroups:
+    - id: cluster-ops
+      title: 'Cluster Operations'
+      description: 'Live OpenShift cluster management'
+      icon: 'cloud'
+      color: '#3b82f6'
+      order: 1
+      cards:
+        - title: 'Cluster Health Check'
+          description: 'Check nodes, pods, and overall cluster status'
+          prompt: 'Give me a full health check of the cluster — show node status, any unhealthy pods, and resource pressure warnings.'
+          icon: 'monitor'
+        - title: 'List Namespaces'
+          description: 'See all namespaces and their status'
+          prompt: 'List all namespaces in the cluster with their status.'
+          icon: 'search'
+        - title: 'Debug Failing Pods'
+          description: 'Find and diagnose unhealthy pods'
+          prompt: 'Are there any pods in CrashLoopBackOff or Error state? Show me the logs and events for any failing pods.'
+          icon: 'bug'
+
+    - id: product-knowledge
+      title: 'Product Knowledge'
+      description: 'Red Hat docs, CVEs, and KB articles'
+      icon: 'book'
+      color: '#dc2626'
+      order: 2
+      cards:
+        - title: 'CVE Lookup'
+          description: 'Search for CVEs affecting your products'
+          prompt: 'Search for any critical or important CVEs affecting OpenShift Container Platform 4.14. Show severity, affected versions, and fix availability.'
+          icon: 'security'
+        - title: 'Product Docs'
+          description: 'Find official Red Hat documentation'
+          prompt: 'How do I configure OAuth authentication in Red Hat Developer Hub? Show me the official documentation steps.'
+          icon: 'docs'
+        - title: 'Troubleshooting KB'
+          description: 'Search knowledge base for known issues'
+          prompt: 'Search for knowledge base articles about OpenShift etcd performance issues and recommended tuning.'
+          icon: 'build'
+
+    - id: cross-agent
+      title: 'Cross-Domain Queries'
+      description: 'Questions that span cluster ops and product knowledge'
+      icon: 'settings'
+      color: '#8b5cf6'
+      order: 3
+      cards:
+        - title: 'CVE Impact Analysis'
+          description: 'Check if your cluster is affected by a CVE'
+          prompt: 'Look up the latest critical OpenShift CVEs and then check what version my cluster is running to tell me if I am affected.'
+          icon: 'security'
+        - title: 'Upgrade Planning'
+          description: 'Plan your cluster upgrade with docs'
+          prompt: 'What is the recommended upgrade path for my cluster? Check the current version and find the official upgrade documentation.'
+          icon: 'rocket'
+        - title: 'Best Practices Audit'
+          description: 'Compare cluster config against Red Hat best practices'
+          prompt: 'List all namespaces with resource quotas and compare against Red Hat best practices for namespace resource management.'
+          icon: 'config'
+
+  # Legacy quickPrompts - kept for backwards compatibility
+  quickPrompts:
+    - title: 'Deploy from Git'
+      description: 'Deploy app directly from GitHub/GitLab'
+      prompt: 'I want to deploy my application from a Git repository. Ask me for the repo URL and help me set up the deployment.'
+      category: Deploy
+
+  # Workflows - Multi-step guided experiences for App Developers
+  # Categories: Deploy (New Developer Onboarding), Migrate (Application Migration), Daily (Daily Developer Tasks)
+  workflows:
+    # ===== NEW DEVELOPER ONBOARDING =====
+    - id: deploy-first-app
+      name: 'Deploy My App'
+      description: 'Get your application running on OpenShift'
+      icon: 'rocket'
+      category: Deploy
+      steps:
+        - title: 'Connect Git Repo'
+          prompt: 'I want to deploy my application from Git. Ask me for my repository URL and branch.'
+          description: 'Link your source code'
+        - title: 'Configure Build'
+          prompt: 'Help me configure the build settings. What base image and build strategy should I use?'
+          description: 'Set up build configuration'
+        - title: 'Deploy & Verify'
+          prompt: 'Deploy my application and show me how to verify it is running correctly.'
+          description: 'Launch and validate'
+
+    - id: add-database
+      name: 'Add Database'
+      description: 'Set up PostgreSQL or MySQL for your app'
+      icon: 'cloud'
+      category: Deploy
+      steps:
+        - title: 'Choose Database'
+          prompt: 'I need a database for my application. What options are available (PostgreSQL, MySQL, MongoDB)? Help me choose.'
+          description: 'Select database type'
+        - title: 'Deploy Database'
+          prompt: 'Deploy the database in my namespace with appropriate resource requests.'
+          description: 'Create database instance'
+        - title: 'Connect App'
+          prompt: 'Update my application deployment to connect to the new database using the secret.'
+          description: 'Link app to database'
+
+    - id: add-config
+      name: 'Add Config'
+      description: 'Set up environment variables & secrets'
+      icon: 'config'
+      category: Deploy
+      steps:
+        - title: 'Add Config'
+          prompt: 'I need to configure my application with environment variables. Help me create ConfigMaps or Secrets and attach them to my deployment.'
+          description: 'Configure app settings'
+
+    # ===== APPLICATION MIGRATION =====
+    # Migration Types (by complexity)
+    - id: migrate-type-a
+      name: 'Type A'
+      description: 'Container-ready apps (minimal changes)'
+      icon: 'rocket'
+      category: Migrate
+      comingSoon: false
+      steps:
+        - title: 'Migrate Type A'
+          prompt: 'I need help with a Type A Migration.'
+          description: 'Interactive migration assistant'
+
+    - id: migrate-type-b
+      name: 'Type B'
+      description: 'Apps needing containerization'
+      icon: 'build'
+      category: Migrate
+      comingSoon: true
+      steps:
+        - title: 'Migrate Type B'
+          prompt: 'I have an application (Type B) that needs to be containerized before running on OpenShift. Help me assess my app, create a Dockerfile, and deploy it. Ask me about my tech stack.'
+          description: 'Containerize and deploy'
+
+    - id: migrate-type-c
+      name: 'Type C'
+      description: 'Complex apps needing refactoring'
+      icon: 'settings'
+      category: Migrate
+      comingSoon: true
+      steps:
+        - title: 'Migrate Type C'
+          prompt: 'I have a complex application (Type C) that requires refactoring to run on OpenShift. Help me analyze dependencies, plan the migration strategy, and break it into microservices if needed. Ask me about my current architecture.'
+          description: 'Refactor and migrate'
+
+    # Tech-specific migrations
+    - id: migrate-java
+      name: 'Java / Spring Boot'
+      description: 'Migrate Java or Spring Boot apps'
+      icon: 'java'
+      category: Migrate
+      steps:
+        - title: 'Migrate Java'
+          prompt: 'I have a Java/Spring Boot application I want to migrate to OpenShift. Help me assess what changes are needed, create a Dockerfile, and deploy it.'
+          description: 'Migrate Java app'
+
+    - id: migrate-nodejs
+      name: 'Node.js'
+      description: 'Migrate Node.js applications'
+      icon: 'code'
+      category: Migrate
+      steps:
+        - title: 'Migrate Node.js'
+          prompt: 'I have a Node.js application I want to migrate to OpenShift. Help me containerize and deploy it.'
+          description: 'Migrate Node app'
+
+    - id: migrate-python
+      name: 'Python'
+      description: 'Migrate Python/Django/Flask apps'
+      icon: 'python'
+      category: Migrate
+      steps:
+        - title: 'Migrate Python'
+          prompt: 'I have a Python application (Django/Flask) I want to migrate to OpenShift. Help me containerize and deploy it.'
+          description: 'Migrate Python app'
+
+    # ===== DAILY DEVELOPER TASKS =====
+    - id: view-logs
+      name: 'View App Logs'
+      description: 'Check what your application is doing'
+      icon: 'logs'
+      category: Daily
+      steps:
+        - title: 'Get Logs'
+          prompt: 'Show me the recent logs for my application. Ask me which pod or deployment.'
+          description: 'View application output'
+
+    - id: debug-app
+      name: 'Debug Issues'
+      description: 'Troubleshoot application problems'
+      icon: 'bug'
+      category: Daily
+      steps:
+        - title: 'Check Status'
+          prompt: 'Show me the status of all my pods and deployments. Are there any errors or warnings?'
+          description: 'Review current state'
+        - title: 'Analyze Logs'
+          prompt: 'Show me the application logs and look for errors or exceptions.'
+          description: 'Find the issue'
+        - title: 'Get Fix'
+          prompt: 'Based on what you found, what should I fix? Give me specific commands.'
+          description: 'Apply the solution'
+
+    - id: scale-app
+      name: 'Scale My App'
+      description: 'Add or remove replicas'
+      icon: 'scale'
+      category: Daily
+      steps:
+        - title: 'Scale'
+          prompt: 'I want to scale my deployment. Ask me which deployment and how many replicas I need.'
+          description: 'Adjust replica count'
+
+    - id: update-app
+      name: 'Update My App'
+      description: 'Deploy a new version'
+      icon: 'refresh'
+      category: Daily
+      steps:
+        - title: 'Trigger Build'
+          prompt: 'I want to update my application with the latest code. Help me trigger a new build and deployment.'
+          description: 'Deploy new version'
+
+    - id: check-resources
+      name: 'Check Resources'
+      description: 'Monitor CPU, memory, quotas'
+      icon: 'monitor'
+      category: Daily
+      steps:
+        - title: 'View Resources'
+          prompt: 'Show me my namespace resource quotas and current usage. How much CPU and memory do I have left?'
+          description: 'Check resource usage'
+
+    - id: view-events
+      name: 'Pod Events'
+      description: 'See what Kubernetes is telling you'
+      icon: 'events'
+      category: Daily
+      steps:
+        - title: 'View Events'
+          prompt: 'Show me recent events for my pods. I want to understand what is happening with my deployment.'
+          description: 'Check pod events'
+
+    - id: rollback-app
+      name: 'Rollback'
+      description: 'Revert to previous version'
+      icon: 'undo'
+      category: Daily
+      steps:
+        - title: 'Rollback'
+          prompt: 'I need to rollback my deployment to the previous version. Show me the rollout history and help me revert.'
+          description: 'Revert deployment'
+
+# =============================================================================
+# BACKSTAGE CORE CONFIGURATION (required for local dev)
+# =============================================================================
+auth:
+  providers:
+    guest:
+      dangerouslyAllowOutsideDevelopment: true
+      enabled: true
+      userEntityRef: user:default/guest
+
+catalog:
+  rules:
+    - allow: [Component, System, API, Resource, Location]
+  locations:
+    - type: file
+      target: ./examples/entities.yaml
+    - type: file
+      target: ./examples/template/template.yaml
+      rules:
+        - allow: [Template]
+    - type: file
+      target: ./examples/org.yaml
+      rules:
+        - allow: [User, Group]
+
+permission:
+  enabled: false
